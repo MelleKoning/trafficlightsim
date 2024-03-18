@@ -1,0 +1,4 @@
+github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 h1:5BVwOaUSBTlVZowGO6VZGw2H/zl9nrd3eCZfYV+NfQA=
+github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71/go.mod h1:9YTyiznxEY1fVinfM7RvRcjRHbw2xLBJ3AAGIT0I4Nw=
+github.com/go-gl/glfw v0.0.0-20240307211618-a69d953ea142 h1:IWIB0h17N0sGOrvh/8lBiDtx1xYt7m4kiCsoZ9sPa1M=
+github.com/go-gl/glfw v0.0.0-20240307211618-a69d953ea142/go.mod h1:wyvWpaEu9B/VQiV1jsPs7Mha9I7yto/HqIBw197ZAzk=
