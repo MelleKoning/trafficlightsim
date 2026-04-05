@@ -12,3 +12,6 @@ github.com/go-gl/glfw/v3.2/glfw/glfw/deps/mingw
 github.com/go-gl/glfw/v3.2/glfw/glfw/deps/vulkan
 github.com/go-gl/glfw/v3.2/glfw/glfw/include/GLFW
 github.com/go-gl/glfw/v3.2/glfw/glfw/src
+# github.com/go-gl/mathgl v1.2.0
+## explicit; go 1.11
+github.com/go-gl/mathgl/mgl32
