@@ -12,6 +12,18 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+type TrafficLight struct {
+	RotX, RotY float32
+	RedOn      bool
+	OrangeOn   bool
+	GreenOn    bool
+	Ambient    float32
+}
+
+var state = TrafficLight{
+	Ambient: 0.3, // nolint
+}
+
 func generateTrafficLightData() []float32 {
 	var data []float32
 
@@ -85,9 +97,11 @@ func generateTrafficLightData() []float32 {
 
 			// Teken een driehoek van het midden van de lamp naar de rand
 			// Z staat op 0.01 om net VOOR het bord te liggen
-			addVertex(0, yOffset, 0.01, 0, 0, 1)                                                                 // nolint: mnd
-			addVertex(float32(math.Cos(angle1))*radius, yOffset+float32(math.Sin(angle1))*radius, 0.01, 0, 0, 1) // nolint: lll,mnd
-			addVertex(float32(math.Cos(angle2))*radius, yOffset+float32(math.Sin(angle2))*radius, 0.01, 0, 0, 1) // nolint: lll,mnd
+			addVertex(0, yOffset, 0.01, 0, 0, 1) // nolint: mnd
+			addVertex(float32(math.Cos(angle1))*radius, yOffset+float32(math.Sin(angle1))*radius,
+				0.01, 0, 0, 1) // nolint: lll,mnd
+			addVertex(float32(math.Cos(angle2))*radius, yOffset+float32(math.Sin(angle2))*radius,
+				0.01, 0, 0, 1) // nolint: lll,mnd
 		}
 	}
 
@@ -124,7 +138,7 @@ func makeVao(points []float32) uint32 {
 }
 
 const (
-	width  = 500 // nolint: mnd
+	width  = 250 // nolint: mnd
 	height = 500 // nolint: mnd
 
 	vertexShaderSource = `
@@ -135,13 +149,18 @@ layout (location = 1) in vec3 normal;
 out vec3 Normal;
 out vec3 FragPos;
 
-uniform mat4 model;
+uniform mat4 model;    // Alleen rotatie/positie
+uniform mat4 transform; // De volledige Projection * View * Model
 
 void main() {
+    // FragPos in wereld-coördinaten voor lichtberekening
     FragPos = vec3(model * vec4(vp, 1.0));
+    // Normalen correct meedraaien
     Normal = mat3(transpose(inverse(model))) * normal;
-    gl_Position = model * vec4(vp, 1.0);
-}` + "\x00"
+
+    gl_Position = transform * vec4(vp, 1.0);
+}
+` + "\x00"
 
 	// the vec4(1, 1, 1, 1) is the colour, red, green, blue, alpha
 	fragmentShaderSource = `
@@ -157,20 +176,21 @@ uniform vec3 objectColor;
 uniform vec3 viewPos;
 
 uniform float emission; // 0.0 voor plastic, 1.0 voor brandende lamp
+uniform float ambientStrength;
 
 void main() {
     // 1. Ambient
-    float ambientStrength = 0.9; // nolint: mnd
+    // float ambientStrength = 0.3; // nolint: mnd
     vec3 ambient = ambientStrength * lightColor;
 
     // 2. Diffuse (De boosdoener: we maken hier de vec3 'diffuse')
     vec3 norm = normalize(Normal);
     vec3 lightDir = normalize(lightPos - FragPos);
-    float diff = max(dot(norm, lightDir), 0.0); // nolint: mnd
+    float diff = max(dot(norm, lightDir), 0.2); // nolint: mnd
     vec3 diffuse = diff * lightColor;
 
     // 3. Specular (De glans)
-    float specularStrength = 0.5; // nolint: mnd
+    float specularStrength = 1.5; // nolint: mnd
     vec3 viewDir = normalize(viewPos - FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32); // nolint: mnd
@@ -213,6 +233,26 @@ func main() {
 	gl.Enable(gl.DEPTH_TEST)
 	gl.Disable(gl.CULL_FACE) // Teken zowel voor- als achterkant van de driehoeken
 
+	window.SetKeyCallback(func(_ *glfw.Window, key glfw.Key, _ int,
+		action glfw.Action, _ glfw.ModifierKey,
+	) {
+		if action == glfw.Press {
+			switch key { // nolint:exhaustive
+			case glfw.Key1:
+				state.RedOn = !state.RedOn
+				fmt.Println("Rood getoggled:", state.RedOn)
+			case glfw.Key2:
+				state.OrangeOn = !state.OrangeOn
+			case glfw.Key3:
+				state.GreenOn = !state.GreenOn
+			case glfw.KeyPageUp:
+				state.Ambient += 0.1
+			case glfw.KeyPageDown:
+				state.Ambient -= 0.1
+			}
+		}
+	})
+
 	for !window.ShouldClose() {
 		if window.GetKey(glfw.KeyUp) == glfw.Press {
 			rotX -= 2.0 // nolint: mnd
@@ -229,6 +269,7 @@ func main() {
 		if window.GetKey(glfw.KeyRight) == glfw.Press {
 			rotY += 2.0 // nolint: mnd
 		}
+
 		// STAP 3: Teken de data
 		draw(vao, window, program)
 	}
@@ -245,54 +286,68 @@ func draw(vao uint32, window *glfw.Window, program uint32) {
 	view := mgl32.LookAtV(mgl32.Vec3{0, 0, 5}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0}) // nolint: mnd
 	// nolint: lll,mnd
 	model := mgl32.HomogRotate3DX(mgl32.DegToRad(rotX)).Mul4(mgl32.HomogRotate3DY(mgl32.DegToRad(rotY)))
+	mvp := projection.Mul4(view).Mul4(model)
 
 	// STUUR DE MATRICES CORRECT
-	// We hebben in de shader 'uniform mat4 model' nodig voor positie
-	gl.UniformMatrix4fv(gl.GetUniformLocation(program, gl.Str("model\x00")), 1, false, &model[0]) // nolint: lll,mnd
-
-	// We sturen de gecombineerde MVP naar een nieuwe naam (of we passen de shader aan)
-	// Voor nu: we gebruiken de shader die gl_Position = model * vec4(vp, 1.0) doet.
-	// Dat betekent dat 'model' daar eigenlijk MVP moet zijn.
-	mvp := projection.Mul4(view).Mul4(model)
-	gl.UniformMatrix4fv(gl.GetUniformLocation(program, gl.Str("model\x00")), 1, false, &mvp[0]) // nolint: lll,mnd
+	// Stuur matrices naar de nieuwe shader-locaties
+	gl.UniformMatrix4fv(gl.GetUniformLocation(program, gl.Str("model\x00")), 1, false, &model[0])
+	gl.UniformMatrix4fv(gl.GetUniformLocation(program, gl.Str("transform\x00")), 1, false, &mvp[0])
 
 	// LICHT (De zon staat rechtsboven de camera)
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("lightPos\x00")), 2.0, 2.0, 5.0)   // nolint: mnd
-	gl.Uniform1f(gl.GetUniformLocation(program, gl.Str("emission\x00")), 0.0)             // Standaard uit // nolint: mnd
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("lightColor\x00")), 1.0, 1.0, 1.0) // nolint: mnd
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("viewPos\x00")), 0, 0, 5)          // nolint: mnd
+	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("lightPos\x00")),
+		0.0, 10.0, 2.0) // nolint: mnd
+
+	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("lightColor\x00")),
+		1.0, 1.0, 0.9) // nolint: mnd
+	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("viewPos\x00")), 0, 0, 5) // nolint: mnd
 
 	gl.BindVertexArray(vao)
 
-	// --- DEEL 1: HET ZWARTE BORD (Eerste 6 vertices) ---
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")), 0.05, 0.05, 0.05) // nolint: mnd
-	gl.DrawArrays(gl.TRIANGLES, 0, 6)                                                         // nolint: mnd
+	// HET ZWARTE BORD (Eerste 6 vertices) ---
+	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")),
+		0.15, 0.15, 0.15) // nolint: mnd
+	gl.Uniform1f(gl.GetUniformLocation(program, gl.Str("emission\x00")), 0.0) // nolint: mnd
+	gl.DrawArrays(gl.TRIANGLES, 0, 6)                                         // nolint: mnd
 
 	// --- DEEL 2: DE WITTE BIES (Volgende 6 vertices) ---
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")), 0.9, 0.9, 0.9) // BIJNA WIT // nolint: mnd
-	gl.DrawArrays(gl.TRIANGLES, 6, 6)                                                      // nolint: mnd
+	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")),
+		0.9, 0.9, 0.9) // nolint: mnd
+	gl.DrawArrays(gl.TRIANGLES, 6, 6) // nolint: mnd
 
 	// --- DEEL 3: DE KAPPEN (De rest) ---
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")), 0.1, 0.1, 0.1) // nolint: mnd
+	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")),
+		0.1, 0.1, 0.1) // nolint: mnd
 
-	numVertices := int32(len(trafficLightData) / 6) // nolint: gosec,mnd
-	gl.DrawArrays(gl.TRIANGLES, 12, numVertices-12) // nolint: mnd
+	_ = int32(len(trafficLightData) / 6) // nolint: gosec,mnd
 
-	// 4. DE LAMPEN (Hier komt de kleur!)
-	gl.Uniform1f(gl.GetUniformLocation(program, gl.Str("emission\x00")), 1.0) // Zet "aan" // nolint: mnd
+	gl.DrawArrays(gl.TRIANGLES, 12, 288) // nolint: mnd
 
-	// Rood
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")), 1.0, 0.0, 0.0) // nolint: mnd
-	gl.DrawArrays(gl.TRIANGLES, 300, 48)                                                   // nolint: mnd
-	// Oranje
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")), 1.0, 0.5, 0.0) // nolint: mnd
-	gl.DrawArrays(gl.TRIANGLES, 348, 48)                                                   // nolint: mnd
-	// Groen
-	gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")), 0.0, 1.0, 0.2) // nolint: mnd
-	gl.DrawArrays(gl.TRIANGLES, 396, 48)                                                   // nolint: mnd
+	// Lampen definitie met kleur
+
+	drawLamp(program, 300, mgl32.Vec3{1, 0, 0}, state.RedOn)      // nolint:mnd
+	drawLamp(program, 348, mgl32.Vec3{1, 0.5, 0}, state.OrangeOn) // nolint:mnd
+	drawLamp(program, 396, mgl32.Vec3{0, 1, 0.2}, state.GreenOn)  // nolint:mnd
+
+	// ambientStrength doorgeven aan Shader
+	gl.Uniform1f(gl.GetUniformLocation(program, gl.Str("ambientStrength\x00")), state.Ambient)
 
 	glfw.PollEvents()
 	window.SwapBuffers()
+}
+
+func drawLamp(program uint32, startIndex int32, color mgl32.Vec3, isOn bool) {
+	if isOn {
+		gl.Uniform1f(gl.GetUniformLocation(program, gl.Str("emission\x00")), 1.0)
+		gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")),
+			color.X(), color.Y(), color.Z())
+	} else {
+		gl.Uniform1f(gl.GetUniformLocation(program, gl.Str("emission\x00")), 0.0)
+		// Als de lamp uit is, maken we de kleur heel donker (uit-stand)
+		gl.Uniform3f(gl.GetUniformLocation(program, gl.Str("objectColor\x00")),
+			color.X()*0.1, color.Y()*0.1, color.Z()*0.1) // nolint
+	}
+
+	gl.DrawArrays(gl.TRIANGLES, startIndex, 48) // nolint endindex of lamps
 }
 
 // initGlfw initializes glfw and returns a Window to use.
